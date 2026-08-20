@@ -1,22 +1,33 @@
-import { createClient } from "@supabase/supabase-js";
+import { createServerClient as createSSRClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 
 /**
- * Server-only Supabase client.
- * Safe to use in Server Components and Server Actions — never shipped to the browser.
- * Uses the service-role key when available (mutations bypass RLS), otherwise falls
- * back to the anon key so read-only pages keep working without extra env vars.
+ * Cookie-aware Supabase client for Server Components, Server Actions, and Route Handlers.
+ * Uses @supabase/ssr so Supabase Auth sessions are stored in and read from HTTP cookies —
+ * this is required for getUser() to work on the server side.
  */
-export function createServerClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key =
-    process.env.SUPABASE_SERVICE_ROLE_KEY ??
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+export async function createServerClient() {
+  const cookieStore = await cookies()
 
-  if (!url || !key) {
-    throw new Error(
-      "Supabase URL or key is missing. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local."
-    );
-  }
-
-  return createClient(url, key);
+  return createSSRClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
+        },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            )
+          } catch {
+            // setAll() is called from Server Components where cookies() is read-only.
+            // The middleware will handle session refreshes in that case.
+          }
+        },
+      },
+    }
+  )
 }

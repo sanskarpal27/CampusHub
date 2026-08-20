@@ -270,7 +270,7 @@ export default async function ReportDetailPage(
   // Fetch from DB or fall back to seed
   let report: Report | null = null
   try {
-    const supabase = createServerClient()
+    const supabase = await createServerClient()
     const { data, error } = await supabase
       .from('reports')
       .select('*')

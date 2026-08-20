@@ -113,3 +113,30 @@ create policy "Reporters can update their own reports"
 create policy "Reporters can delete their own reports"
   on public.reports for delete
   using (auth.uid() = reporter_id);
+
+-- ============================================================
+-- Messages: Direct messaging between users
+-- ============================================================
+create table if not exists public.messages (
+  id            uuid primary key default gen_random_uuid(),
+  created_at    timestamptz not null default now(),
+  
+  item_id       uuid references public.items(id) on delete cascade not null,
+  sender_id     uuid references auth.users(id) on delete cascade not null,
+  receiver_id   uuid references auth.users(id) on delete cascade not null,
+  content       text not null,
+  is_read       boolean not null default false
+);
+
+-- Row Level Security
+alter table public.messages enable row level security;
+
+-- Users can read messages they are involved in
+create policy "Users can read their own messages"
+  on public.messages for select
+  using (auth.uid() = sender_id or auth.uid() = receiver_id);
+
+-- Users can insert messages if they are the sender
+create policy "Users can insert messages"
+  on public.messages for insert
+  with check (auth.uid() = sender_id);

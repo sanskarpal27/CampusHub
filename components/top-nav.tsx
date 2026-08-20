@@ -8,19 +8,72 @@ import {
   Search as SearchIcon,
   UserCircle,
   MapPin,
+  LogIn,
 } from "lucide-react";
 import { NotificationsPanel } from "@/components/notifications-panel";
+import { signOut } from "@/app/actions/auth";
+import type { User } from "@supabase/supabase-js";
 
-// Nav links – Notifications is intentionally omitted; it's handled by the
-// NotificationsPanel dropdown mounted directly in the header.
+// Nav links — same for all users
 const navLinks = [
   { href: "/", label: "Home", icon: Home },
   { href: "/exchange", label: "Exchange", icon: ArrowLeftRight },
   { href: "/lost-found", label: "Lost & Found", icon: MapPin },
-  { href: "/profile", label: "Profile", icon: UserCircle },
 ];
 
-export function TopNav() {
+// ── Avatar / Sign-in cluster ───────────────────────────────────────────────────
+function AuthCluster({ user }: { user: User | null }) {
+  if (!user) {
+    return (
+      <Link
+        href="/login"
+        className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 active:scale-95"
+      >
+        <LogIn className="h-4 w-4" />
+        Sign In
+      </Link>
+    );
+  }
+
+  // Derive initials and email label from the Supabase user object
+  const email = user.email ?? "";
+  const initials = email.slice(0, 2).toUpperCase();
+
+  return (
+    <div className="flex items-center gap-2">
+      {/* Notifications — only shown when authenticated */}
+      <NotificationsPanel user={user} />
+
+      {/* Avatar dropdown trigger → profile page */}
+      <Link
+        href="/profile"
+        title={email}
+        className="group flex items-center gap-2 rounded-xl px-2 py-1.5 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+      >
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white ring-2 ring-indigo-100 group-hover:ring-indigo-300 transition">
+          {initials}
+        </span>
+        <span className="hidden max-w-[120px] truncate lg:block text-slate-700">
+          {email.split("@")[0]}
+        </span>
+      </Link>
+
+      {/* Sign out */}
+      <form action={signOut}>
+        <button
+          type="submit"
+          title="Sign out"
+          className="rounded-lg px-3 py-2 text-xs font-medium text-slate-500 transition hover:bg-slate-100 hover:text-rose-600"
+        >
+          Sign out
+        </button>
+      </form>
+    </div>
+  );
+}
+
+// ── Top nav ────────────────────────────────────────────────────────────────────
+export function TopNav({ user }: { user: User | null }) {
   const pathname = usePathname();
 
   return (
@@ -62,7 +115,7 @@ export function TopNav() {
         </div>
 
         {/* ── Desktop nav links ── */}
-        <nav className="ml-auto hidden items-center gap-1 lg:flex">
+        <nav className="hidden items-center gap-1 lg:flex">
           {navLinks.map(({ href, label, icon: Icon }) => {
             const isActive =
               href === "/" ? pathname === "/" : pathname.startsWith(href);
@@ -83,35 +136,56 @@ export function TopNav() {
               </Link>
             );
           })}
-
-          {/* Notifications dropdown */}
-          <NotificationsPanel />
         </nav>
 
-        {/* ── Mobile: icon-only nav + notifications ── */}
-        <nav className="ml-auto flex items-center gap-1 lg:hidden">
-          {navLinks.map(({ href, label, icon: Icon }) => {
-            const isActive =
-              href === "/" ? pathname === "/" : pathname.startsWith(href);
-            return (
-              <Link
-                key={href}
-                href={href}
-                aria-label={label}
-                className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors ${
-                  isActive
-                    ? "bg-indigo-50 text-indigo-600"
-                    : "text-slate-500 hover:bg-slate-100 hover:text-slate-900"
-                }`}
-              >
-                <Icon className="h-5 w-5" />
-              </Link>
-            );
-          })}
-          {/* Notifications dropdown on mobile too */}
-          <NotificationsPanel />
-        </nav>
+        {/* ── Auth cluster (right edge) ── */}
+        <div className="ml-auto">
+          <AuthCluster user={user} />
+        </div>
       </div>
+
+      {/* ── Mobile bottom-bar links ── */}
+      <nav className="flex items-center justify-around border-t border-slate-100 bg-white px-2 py-1 lg:hidden">
+        {navLinks.map(({ href, label, icon: Icon }) => {
+          const isActive =
+            href === "/" ? pathname === "/" : pathname.startsWith(href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              aria-label={label}
+              className={`flex flex-col items-center gap-0.5 rounded-xl px-4 py-2 text-[10px] font-medium transition-colors ${
+                isActive
+                  ? "text-indigo-600"
+                  : "text-slate-500 hover:text-slate-700"
+              }`}
+            >
+              <Icon className={`h-5 w-5 ${isActive ? "text-indigo-600" : ""}`} />
+              {label}
+            </Link>
+          );
+        })}
+        {/* Mobile auth icon */}
+        {user ? (
+          <Link
+            href="/profile"
+            aria-label="Profile"
+            className="flex flex-col items-center gap-0.5 rounded-xl px-4 py-2 text-[10px] font-medium text-slate-500"
+          >
+            <UserCircle className="h-5 w-5" />
+            Profile
+          </Link>
+        ) : (
+          <Link
+            href="/login"
+            aria-label="Sign In"
+            className="flex flex-col items-center gap-0.5 rounded-xl px-4 py-2 text-[10px] font-medium text-indigo-600"
+          >
+            <LogIn className="h-5 w-5" />
+            Sign In
+          </Link>
+        )}
+      </nav>
     </header>
   );
 }

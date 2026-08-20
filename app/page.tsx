@@ -8,95 +8,8 @@ import {
   TrendingUp,
   Package,
 } from "lucide-react";
-
-// ─────────────────────────────────────────────
-// Static placeholder data
-// ─────────────────────────────────────────────
-const recentItems = [
-  {
-    id: "1",
-    title: "Calculus: Early Transcendentals (9th ed.)",
-    category: "Books",
-    price: 450,
-    condition: "Good",
-    timeAgo: "2 hours ago",
-    seller: "Aryan K.",
-    status: "available",
-  },
-  {
-    id: "2",
-    title: "HDMI Cable – 3m",
-    category: "Electronics",
-    price: 120,
-    condition: "Like New",
-    timeAgo: "5 hours ago",
-    seller: "Priya M.",
-    status: "available",
-  },
-  {
-    id: "3",
-    title: "Mechanical Keyboard (TKL)",
-    category: "Electronics",
-    price: 1800,
-    condition: "Good",
-    timeAgo: "Yesterday",
-    seller: "Rohan S.",
-    status: "reserved",
-  },
-  {
-    id: "4",
-    title: "Casio FX-991EX Calculator",
-    category: "Stationery",
-    price: 600,
-    condition: "Fair",
-    timeAgo: "Yesterday",
-    seller: "Sneha T.",
-    status: "available",
-  },
-];
-
-const recentReports = [
-  {
-    id: "1",
-    type: "lost" as const,
-    title: "Blue JBL Earbuds Case",
-    category: "Electronics",
-    location: "Library, 2nd Floor",
-    timeAgo: "1 hour ago",
-    status: "open",
-    reporter: "Mihail P.",
-  },
-  {
-    id: "2",
-    type: "found" as const,
-    title: "ID Card – Suresh Rao",
-    category: "ID Card",
-    location: "Cafeteria",
-    timeAgo: "3 hours ago",
-    status: "open",
-    reporter: "Divya R.",
-  },
-  {
-    id: "3",
-    type: "lost" as const,
-    title: "Grey Hoodie (L)",
-    category: "Clothing",
-    location: "Gym Locker Room",
-    timeAgo: "Yesterday",
-    status: "resolved",
-    reporter: "Karan V.",
-  },
-  {
-    id: "4",
-    type: "found" as const,
-    title: "Silver Keys with Keychain",
-    category: "Keys",
-    location: "Parking Lot B",
-    timeAgo: "2 days ago",
-    status: "open",
-    reporter: "Ananya B.",
-  },
-];
+import { createServerClient } from "@/utils/supabase/server";
+import { formatDistanceToNow } from "date-fns";
 
 // ─────────────────────────────────────────────
 // Sub-components
@@ -109,7 +22,7 @@ function StatCard({
 }: {
   icon: React.ElementType;
   label: string;
-  value: string;
+  value: string | number;
   color: string;
 }) {
   return (
@@ -127,42 +40,42 @@ function StatCard({
   );
 }
 
-function ItemCard({
-  title,
-  category,
-  price,
-  condition,
-  timeAgo,
-  seller,
-  status,
-}: (typeof recentItems)[number]) {
+function ItemCard({ item }: { item: any }) {
+  const timeAgo = formatDistanceToNow(new Date(item.created_at), { addSuffix: true });
+  const imageUrl = item.image_urls?.[0];
+
   return (
     <article className="group flex items-start gap-4 rounded-xl border border-slate-100 bg-white p-4 shadow-sm transition-all hover:border-indigo-100 hover:shadow-md">
-      {/* Placeholder thumbnail */}
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-300">
-        <Package className="h-6 w-6" />
+      {/* Thumbnail */}
+      <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-indigo-50 text-indigo-300">
+        {imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={imageUrl} alt={item.title} className="h-full w-full object-cover" />
+        ) : (
+          <Package className="h-6 w-6" />
+        )}
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
           <p className="truncate text-sm font-semibold text-slate-800 group-hover:text-indigo-700">
-            {title}
+            {item.title}
           </p>
           <span
             className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-              status === "available"
+              item.status === "available"
                 ? "bg-emerald-50 text-emerald-700"
                 : "bg-amber-50 text-amber-700"
             }`}
           >
-            {status === "available" ? "Available" : "Reserved"}
+            {item.status === "available" ? "Available" : "Reserved"}
           </span>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
           <span className="flex items-center gap-1">
-            <Tag className="h-3 w-3" /> {category}
+            <Tag className="h-3 w-3" /> {item.category}
           </span>
           <span>·</span>
-          <span>{condition}</span>
+          <span>{item.condition}</span>
           <span>·</span>
           <span className="flex items-center gap-1">
             <Clock className="h-3 w-3" /> {timeAgo}
@@ -170,26 +83,19 @@ function ItemCard({
         </div>
         <div className="mt-2 flex items-center justify-between">
           <span className="text-base font-bold text-indigo-600">
-            ₹{price.toLocaleString("en-IN")}
+            {item.price ? `₹${item.price.toLocaleString("en-IN")}` : "Free"}
           </span>
-          <span className="text-xs text-slate-400">{seller}</span>
+          <span className="text-xs text-slate-400">{item.seller_name || 'Anonymous'}</span>
         </div>
       </div>
     </article>
   );
 }
 
-function ReportCard({
-  type,
-  title,
-  category,
-  location,
-  timeAgo,
-  status,
-  reporter,
-}: (typeof recentReports)[number]) {
-  const isLost = type === "lost";
-  const isResolved = status === "resolved";
+function ReportCard({ report }: { report: any }) {
+  const isLost = report.type === "lost";
+  const isResolved = report.status === "resolved";
+  const timeAgo = formatDistanceToNow(new Date(report.created_at), { addSuffix: true });
 
   return (
     <article className="group flex items-start gap-4 rounded-xl border border-slate-100 bg-white p-4 shadow-sm transition-all hover:border-rose-100 hover:shadow-md">
@@ -205,7 +111,7 @@ function ReportCard({
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
           <p className="truncate text-sm font-semibold text-slate-800 group-hover:text-rose-700">
-            {title}
+            {report.title}
           </p>
           <span
             className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
@@ -224,18 +130,18 @@ function ReportCard({
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
           <span className="flex items-center gap-1">
-            <Tag className="h-3 w-3" /> {category}
+            <Tag className="h-3 w-3" /> {report.category}
           </span>
           <span>·</span>
           <span className="flex items-center gap-1">
-            <MapPin className="h-3 w-3" /> {location}
+            <MapPin className="h-3 w-3" /> {report.location || 'Unknown location'}
           </span>
         </div>
         <div className="mt-2 flex items-center justify-between">
           <span className="flex items-center gap-1 text-xs text-slate-400">
             <Clock className="h-3 w-3" /> {timeAgo}
           </span>
-          <span className="text-xs text-slate-400">{reporter}</span>
+          <span className="text-xs text-slate-400">{report.reporter_name || 'Anonymous'}</span>
         </div>
       </div>
     </article>
@@ -245,7 +151,29 @@ function ReportCard({
 // ─────────────────────────────────────────────
 // Page
 // ─────────────────────────────────────────────
-export default function HomePage() {
+export default async function HomePage() {
+  const supabase = await createServerClient();
+  
+  const [
+    { data: userResponse },
+    { data: recentItems },
+    { data: recentReports },
+    { count: activeListingsCount },
+    { count: soldItemsCount },
+    { count: openReportsCount },
+    { count: resolvedReportsCount }
+  ] = await Promise.all([
+    supabase.auth.getUser(),
+    supabase.from('items').select('*').order('created_at', { ascending: false }).limit(4),
+    supabase.from('reports').select('*').order('created_at', { ascending: false }).limit(4),
+    supabase.from('items').select('*', { count: 'exact', head: true }).eq('status', 'available'),
+    supabase.from('items').select('*', { count: 'exact', head: true }).eq('status', 'sold'),
+    supabase.from('reports').select('*', { count: 'exact', head: true }).eq('status', 'open'),
+    supabase.from('reports').select('*', { count: 'exact', head: true }).eq('status', 'resolved')
+  ]);
+
+  const userName = userResponse?.user?.email?.split('@')[0] || "Guest";
+
   const hour = new Date().getHours();
   const greeting =
     hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
@@ -256,7 +184,7 @@ export default function HomePage() {
       <section className="mb-8">
         <h1 className="text-3xl font-bold tracking-tight text-slate-900 sm:text-4xl">
           {greeting},{" "}
-          <span className="text-indigo-600">Bhaskar</span> 👋
+          <span className="text-indigo-600">{userName}</span> 👋
         </h1>
         <p className="mt-1 text-slate-500">
           Here&apos;s what&apos;s happening on campus today.
@@ -271,25 +199,25 @@ export default function HomePage() {
         <StatCard
           icon={ArrowLeftRight}
           label="Active Listings"
-          value="124"
+          value={activeListingsCount || 0}
           color="bg-indigo-500"
         />
         <StatCard
           icon={TrendingUp}
           label="Sold This Week"
-          value="38"
+          value={soldItemsCount || 0}
           color="bg-violet-500"
         />
         <StatCard
           icon={AlertCircle}
           label="Open Lost Reports"
-          value="17"
+          value={openReportsCount || 0}
           color="bg-rose-500"
         />
         <StatCard
           icon={CheckCircle2}
           label="Items Recovered"
-          value="9"
+          value={resolvedReportsCount || 0}
           color="bg-emerald-500"
         />
       </section>
@@ -319,9 +247,15 @@ export default function HomePage() {
             </a>
           </div>
           <div className="space-y-3">
-            {recentItems.map((item) => (
-              <ItemCard key={item.id} {...item} />
-            ))}
+            {recentItems && recentItems.length > 0 ? (
+              recentItems.map((item) => (
+                <ItemCard key={item.id} item={item} />
+              ))
+            ) : (
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-6 text-center text-sm text-slate-500">
+                No recent activity. Be the first to list an item!
+              </div>
+            )}
           </div>
         </section>
 
@@ -348,9 +282,15 @@ export default function HomePage() {
             </a>
           </div>
           <div className="space-y-3">
-            {recentReports.map((report) => (
-              <ReportCard key={report.id} {...report} />
-            ))}
+            {recentReports && recentReports.length > 0 ? (
+              recentReports.map((report) => (
+                <ReportCard key={report.id} report={report} />
+              ))
+            ) : (
+              <div className="rounded-xl border border-slate-100 bg-slate-50 p-6 text-center text-sm text-slate-500">
+                No recent reports.
+              </div>
+            )}
           </div>
         </section>
       </div>

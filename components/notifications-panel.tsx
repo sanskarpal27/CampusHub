@@ -2,103 +2,50 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import {
-  MessageSquare,
-  Sparkles,
-  CheckCircle2,
-  CalendarCheck,
-  Bell,
-  X,
-  CheckCheck,
-} from "lucide-react";
+import { MessageSquare, Bell, X } from "lucide-react";
+import type { User } from "@supabase/supabase-js";
+import { createBrowserClient } from "@supabase/ssr";
+import { formatDistanceToNow } from "date-fns";
 
-// ── Types ──────────────────────────────────────────────────────────────────────
-type NotifType = "message" | "match" | "claim" | "handoff";
-
-type Notification = {
-  id: string;
-  type: NotifType;
-  title: string;
-  body: string;
-  href: string;
-  timeAgo: string;
-  read: boolean;
-};
-
-// ── Placeholder data ────────────────────────────────────────────────────────
-const INITIAL_NOTIFS: Notification[] = [
-  {
-    id: "n1",
-    type: "message",
-    title: "New message on your listing",
-    body: "Priya M. asked: \"Is the HP laptop still available? Can I see it today?\"",
-    href: "/exchange",
-    timeAgo: "5m ago",
-    read: false,
-  },
-  {
-    id: "n2",
-    type: "match",
-    title: "Lost & Found match found!",
-    body: "AI found a possible match for your Black Leather Wallet — 89% confidence at Engineering Block.",
-    href: "/lost-found/seed-6",
-    timeAgo: "32m ago",
-    read: false,
-  },
-  {
-    id: "n3",
-    type: "claim",
-    title: "Claim accepted",
-    body: "Your claim for the Silver Keys with Anchor Keychain has been accepted by Ananya B.",
-    href: "/lost-found/seed-4",
-    timeAgo: "2h ago",
-    read: false,
-  },
-  {
-    id: "n4",
-    type: "handoff",
-    title: "Handoff scheduled",
-    body: "Meet Rohan S. tomorrow at 12:30 PM near the Student Union to collect the Mechanical Keyboard.",
-    href: "/exchange",
-    timeAgo: "Yesterday",
-    read: true,
-  },
-];
-
-// ── Icon + colours per type ───────────────────────────────────────────────────
-const TYPE_META: Record<
-  NotifType,
-  { icon: React.ElementType; bg: string; text: string }
-> = {
-  message: {
-    icon: MessageSquare,
-    bg: "bg-indigo-100",
-    text: "text-indigo-600",
-  },
-  match: {
-    icon: Sparkles,
-    bg: "bg-violet-100",
-    text: "text-violet-600",
-  },
-  claim: {
-    icon: CheckCircle2,
-    bg: "bg-emerald-100",
-    text: "text-emerald-600",
-  },
-  handoff: {
-    icon: CalendarCheck,
-    bg: "bg-amber-100",
-    text: "text-amber-600",
-  },
-};
-
-// ── Panel component ────────────────────────────────────────────────────────────
-export function NotificationsPanel() {
+export function NotificationsPanel({ user }: { user: User }) {
   const [open, setOpen] = useState(false);
-  const [notifs, setNotifs] = useState<Notification[]>(INITIAL_NOTIFS);
+  const [unreadMessages, setUnreadMessages] = useState<any[]>([]);
   const panelRef = useRef<HTMLDivElement>(null);
+  
+  const supabase = createBrowserClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  );
 
-  const unreadCount = notifs.filter((n) => !n.read).length;
+  // Fetch unread messages
+  useEffect(() => {
+    async function fetchUnread() {
+      if (!user) return;
+      const { data, error } = await supabase
+        .from("messages")
+        .select(`
+          id,
+          content,
+          created_at,
+          sender_id,
+          item_id,
+          items ( title )
+        `)
+        .eq("receiver_id", user.id)
+        .eq("is_read", false)
+        .order("created_at", { ascending: false });
+        
+      if (!error && data) {
+        setUnreadMessages(data);
+      }
+    }
+    
+    fetchUnread();
+    
+    // Optional: Real-time subscription could go here
+  }, [user, supabase]);
+
+  const unreadCount = unreadMessages.length;
 
   // Close on outside click
   useEffect(() => {
@@ -119,16 +66,6 @@ export function NotificationsPanel() {
     if (open) document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
   }, [open]);
-
-  function markAllRead() {
-    setNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
-  }
-
-  function markRead(id: string) {
-    setNotifs((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
-  }
 
   return (
     <div ref={panelRef} className="relative">
@@ -162,7 +99,7 @@ export function NotificationsPanel() {
           {/* Header */}
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <div className="flex items-center gap-2">
-              <Bell className="h-4 w-4 text-slateigo-600 text-slate-700" />
+              <Bell className="h-4 w-4 text-slate-700" />
               <span className="text-sm font-bold text-slate-900">
                 Notifications
               </span>
@@ -173,15 +110,6 @@ export function NotificationsPanel() {
               )}
             </div>
             <div className="flex items-center gap-1">
-              {unreadCount > 0 && (
-                <button
-                  onClick={markAllRead}
-                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-slate-500 transition hover:bg-slate-50 hover:text-indigo-600"
-                >
-                  <CheckCheck className="h-3.5 w-3.5" />
-                  Mark all read
-                </button>
-              )}
               <button
                 onClick={() => setOpen(false)}
                 aria-label="Close notifications"
@@ -194,65 +122,57 @@ export function NotificationsPanel() {
 
           {/* Timeline */}
           <ul className="max-h-[420px] overflow-y-auto divide-y divide-slate-50">
-            {notifs.map((notif) => {
-              const meta = TYPE_META[notif.type];
-              const Icon = meta.icon;
-              return (
-                <li key={notif.id}>
-                  <Link
-                    href={notif.href}
-                    onClick={() => {
-                      markRead(notif.id);
-                      setOpen(false);
-                    }}
-                    className={`flex gap-3 px-4 py-3.5 transition hover:bg-slate-50 ${
-                      !notif.read ? "bg-indigo-50/40" : ""
-                    }`}
-                  >
-                    {/* Icon bubble */}
-                    <span
-                      className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${meta.bg}`}
+            {unreadMessages.length === 0 ? (
+              <li className="px-4 py-8 text-center text-sm text-slate-500">
+                You have no unread messages.
+              </li>
+            ) : (
+              unreadMessages.map((msg) => {
+                const itemTitle = msg.items?.title || "an item";
+                return (
+                  <li key={msg.id}>
+                    <Link
+                      href="/inbox"
+                      onClick={() => setOpen(false)}
+                      className="flex gap-3 px-4 py-3.5 transition hover:bg-slate-50 bg-indigo-50/40"
                     >
-                      <Icon className={`h-4 w-4 ${meta.text}`} />
-                    </span>
+                      {/* Icon bubble */}
+                      <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-100">
+                        <MessageSquare className="h-4 w-4 text-indigo-600" />
+                      </span>
 
-                    {/* Content */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <p
-                          className={`text-xs font-semibold leading-snug ${
-                            notif.read ? "text-slate-700" : "text-slate-900"
-                          }`}
-                        >
-                          {notif.title}
+                      {/* Content */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-xs font-semibold leading-snug text-slate-900">
+                            New message regarding {itemTitle}
+                          </p>
+                          <span className="shrink-0 text-[11px] text-slate-400">
+                            {formatDistanceToNow(new Date(msg.created_at), { addSuffix: true })}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
+                          {msg.content}
                         </p>
-                        <span className="shrink-0 text-[11px] text-slate-400">
-                          {notif.timeAgo}
-                        </span>
                       </div>
-                      <p className="mt-0.5 line-clamp-2 text-xs text-slate-500">
-                        {notif.body}
-                      </p>
-                    </div>
 
-                    {/* Unread dot */}
-                    {!notif.read && (
+                      {/* Unread dot */}
                       <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-indigo-500" />
-                    )}
-                  </Link>
-                </li>
-              );
-            })}
+                    </Link>
+                  </li>
+                );
+              })
+            )}
           </ul>
 
           {/* Footer */}
           <div className="border-t border-slate-100 bg-slate-50 px-4 py-3 text-center">
             <Link
-              href="/notifications"
+              href="/inbox"
               onClick={() => setOpen(false)}
-              className="text-xs font-medium text-indigo-600 hover:underline"
+              className="flex items-center justify-center gap-1 text-xs font-semibold text-indigo-600 hover:underline"
             >
-              View all notifications →
+              Go to Inbox →
             </Link>
           </div>
         </div>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useActionState, useState, useTransition } from 'react'
+import { useActionState, useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Upload,
@@ -16,10 +16,17 @@ import {
   User,
   FileText,
   AlertCircle,
+  X,
+  CloudUpload,
 } from 'lucide-react'
 import { createListing, type ActionState } from '@/app/actions/exchange'
+import { createClient } from '@/utils/supabase/client'
+import type { AnalysisResult } from '@/app/api/analyze-image/route'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
+const BUCKET = 'campushub-images'
+const MAX_FILE_BYTES = 10 * 1024 * 1024 // 10 MB
+
 const CATEGORIES = [
   'Books & Textbooks',
   'Electronics',
@@ -32,34 +39,13 @@ const CATEGORIES = [
 
 const CONDITIONS = ['New', 'Like New', 'Good', 'Fair', 'Poor']
 
-// ── Mock AI analysis results (cycles through these per upload) ────────────────
-const AI_SUGGESTIONS = [
-  {
-    title: 'HP 14 Laptop – Intel Core i5, 8GB RAM, 512GB SSD',
-    category: 'Electronics',
-    condition: 'Good',
-    description:
-      'Lightly used HP laptop in good working condition. Ideal for college assignments and programming. Minor cosmetic wear on palm rest. Charger and original box included.',
-  },
-  {
-    title: 'Introduction to Algorithms – CLRS (4th Edition)',
-    category: 'Books & Textbooks',
-    condition: 'Like New',
-    description:
-      'Classic algorithms textbook in near-perfect condition. Used for one semester only. No writing or highlights inside. Perfect for CS and Engineering students.',
-  },
-  {
-    title: 'IKEA MICKE Study Desk – White, 73cm',
-    category: 'Furniture',
-    condition: 'Good',
-    description:
-      'Sturdy study desk with a small cable outlet. A few minor surface scratches not visible during use. Easy to disassemble for transport. Great for hostel rooms.',
-  },
-]
-
 // ── Types ─────────────────────────────────────────────────────────────────────
-type AiState = 'idle' | 'analyzing' | 'ready'
-type Suggestion = (typeof AI_SUGGESTIONS)[0]
+type UploadState =
+  | { status: 'idle' }
+  | { status: 'uploading' }
+  | { status: 'analyzing' }
+  | { status: 'done'; publicUrl: string; localPreview: string; aiError?: string }
+  | { status: 'error'; message: string }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 function FieldLabel({ children }: { children: React.ReactNode }) {
@@ -70,8 +56,8 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   )
 }
 
-function InputClass(extra = '') {
-  return `w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100 ${extra}`
+function inputCls(extra = '') {
+  return `w-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 placeholder:text-slate-400 outline-none transition focus:border-indigo-400 focus:bg-white focus:ring-2 focus:ring-indigo-100 disabled:opacity-50 ${extra}`
 }
 
 function AiSuggestionBadge({ label, value }: { label: string; value: string }) {
@@ -88,56 +74,116 @@ function AiSuggestionBadge({ label, value }: { label: string; value: string }) {
   )
 }
 
-// ── Main Page Component ────────────────────────────────────────────────────────
+// ── Main component ─────────────────────────────────────────────────────────────
 export default function NewListingPage() {
   const router = useRouter()
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [state, formAction, isPending] = useActionState<ActionState, FormData>(
     createListing,
     {}
   )
 
-  // AI simulation state
-  const [aiState, setAiState] = useState<AiState>('idle')
-  const [suggestion, setSuggestion] = useState<Suggestion | null>(null)
-  const [uploadCount, setUploadCount] = useState(0)
+  // Upload + AI state
+  const [uploadState, setUploadState] = useState<UploadState>({ status: 'idle' })
+  const [suggestion, setSuggestion] = useState<AnalysisResult | null>(null)
 
-  // Controlled fields (pre-filled by AI)
+  // Controlled form fields (pre-filled by Vision API)
   const [title, setTitle] = useState('')
   const [category, setCategory] = useState('')
   const [condition, setCondition] = useState('')
   const [description, setDescription] = useState('')
 
-  const [, startTransition] = useTransition()
+  // ── Storage upload → Vision API ──────────────────────────────────────────
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
 
-  // Mock image analysis flow
-  function handleUploadClick() {
-    if (aiState === 'analyzing') return
-    setAiState('analyzing')
+    // Reset so the same file can be reselected after an error
+    e.target.value = ''
 
-    startTransition(() => {
-      setTimeout(() => {
-        const pick = AI_SUGGESTIONS[uploadCount % AI_SUGGESTIONS.length]
-        setSuggestion(pick)
-        setTitle(pick.title)
-        setCategory(pick.category)
-        setCondition(pick.condition)
-        setDescription(pick.description)
-        setAiState('ready')
-        setUploadCount((n) => n + 1)
-      }, 2200)
-    })
+    if (file.size > MAX_FILE_BYTES) {
+      setUploadState({ status: 'error', message: 'File exceeds 10 MB limit.' })
+      return
+    }
+
+    const localPreview = URL.createObjectURL(file)
+    setUploadState({ status: 'uploading' })
+
+    try {
+      // ── Step 1: Upload to Supabase Storage ────────────────────────────────
+      const supabase = createClient()
+
+      const { data: { user } } = await supabase.auth.getUser()
+      const folder = user?.id ?? 'anon'
+      const ext = file.name.split('.').pop() ?? 'jpg'
+      const path = `listings/${folder}/${Date.now()}.${ext}`
+
+      const { error: uploadError } = await supabase.storage
+        .from(BUCKET)
+        .upload(path, file, {
+          cacheControl: '3600',
+          upsert: false,
+          contentType: file.type,
+        })
+
+      if (uploadError) throw uploadError
+
+      const { data: { publicUrl } } = supabase.storage.from(BUCKET).getPublicUrl(path)
+
+      // ── Step 2: Call Vision API ────────────────────────────────────────────
+      setUploadState({ status: 'analyzing' })
+
+      const analysisRes = await fetch('/api/analyze-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl: publicUrl }),
+      })
+
+      if (!analysisRes.ok) {
+        // Analysis failed — still keep the uploaded image, just skip auto-fill
+        const errBody = await analysisRes.json().catch(() => ({}))
+        const aiError = (errBody as { error?: string }).error ?? 'AI analysis failed.'
+        setUploadState({ status: 'done', publicUrl, localPreview, aiError })
+        return
+      }
+
+      const analysis = (await analysisRes.json()) as AnalysisResult
+
+      // ── Step 3: Populate form fields ───────────────────────────────────────
+      setSuggestion(analysis)
+      setTitle(analysis.title)
+      setCategory(analysis.category)
+      setCondition(analysis.condition)
+      setDescription(analysis.description)
+
+      setUploadState({ status: 'done', publicUrl, localPreview })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Upload failed. Please retry.'
+      setUploadState({ status: 'error', message: msg })
+    }
   }
 
-  const uploaderLabel =
-    aiState === 'idle'
-      ? 'Upload a photo to auto-fill details'
-      : aiState === 'analyzing'
-        ? 'Analyzing your image with AI…'
-        : 'Image analyzed! Review & edit below'
+  function clearImage() {
+    if (uploadState.status === 'done') {
+      URL.revokeObjectURL(uploadState.localPreview)
+    }
+    setUploadState({ status: 'idle' })
+    setSuggestion(null)
+  }
+
+  const aiReady =
+    uploadState.status === 'done' ||
+    uploadState.status === 'analyzing'
+
+  const publicUrl =
+    uploadState.status === 'done' ? uploadState.publicUrl : ''
+
+  const localPreview =
+    uploadState.status === 'done' ? uploadState.localPreview : null
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
-      {/* ── Back link ── */}
+      {/* Back */}
       <button
         onClick={() => router.back()}
         className="mb-6 flex items-center gap-1.5 text-sm font-medium text-slate-500 transition hover:text-slate-800"
@@ -153,9 +199,9 @@ export default function NewListingPage() {
         Upload a photo and let our AI assistant fill in the details for you.
       </p>
 
-      {/* ── AI Smart Listing Assistant ── */}
+      {/* ── Smart Listing Assistant ── */}
       <div className="mb-8 overflow-hidden rounded-2xl border border-indigo-100 bg-gradient-to-br from-indigo-50 to-violet-50 shadow-sm">
-        {/* Header */}
+        {/* Panel header */}
         <div className="flex items-center gap-3 border-b border-indigo-100 bg-white/60 px-6 py-4 backdrop-blur-sm">
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 shadow-sm">
             <Wand2 className="h-4 w-4 text-white" />
@@ -165,7 +211,7 @@ export default function NewListingPage() {
               Smart Listing Assistant
             </p>
             <p className="text-xs text-slate-500">
-              Powered by AI · Auto-fills title, category &amp; description
+              Upload a photo · Image stored in Supabase · AI auto-fills details
             </p>
           </div>
           <span className="ml-auto rounded-full bg-indigo-600 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
@@ -173,60 +219,122 @@ export default function NewListingPage() {
           </span>
         </div>
 
-        {/* Upload area */}
         <div className="p-6">
-          <button
-            type="button"
-            id="upload-image-btn"
-            onClick={handleUploadClick}
-            disabled={aiState === 'analyzing'}
-            className={`relative flex w-full flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-all ${
-              aiState === 'ready'
-                ? 'border-emerald-300 bg-emerald-50'
-                : aiState === 'analyzing'
-                  ? 'border-indigo-300 bg-indigo-50 opacity-80'
-                  : 'border-indigo-200 bg-white hover:border-indigo-400 hover:bg-indigo-50'
-            }`}
-          >
-            {aiState === 'analyzing' ? (
-              <>
-                <Loader2 className="h-10 w-10 animate-spin text-indigo-500" />
-                <p className="text-sm font-semibold text-indigo-700">
-                  Analyzing with AI…
-                </p>
-                <p className="text-xs text-slate-400">
-                  Detecting category, condition &amp; description
-                </p>
-              </>
-            ) : aiState === 'ready' ? (
-              <>
-                <CheckCircle2 className="h-10 w-10 text-emerald-500" />
-                <p className="text-sm font-semibold text-emerald-700">
-                  Analysis complete!
-                </p>
-                <p className="text-xs text-slate-500">
-                  Click to analyze a different image
-                </p>
-              </>
-            ) : (
-              <>
-                <ImagePlus className="h-10 w-10 text-indigo-400" />
-                <p className="text-sm font-semibold text-slate-700">
-                  Upload Image
-                </p>
-                <p className="text-xs text-slate-400">
-                  PNG, JPG or WEBP · Max 10 MB
-                </p>
-              </>
-            )}
-          </button>
+          {/* ── Upload zone ── */}
+          {uploadState.status === 'done' && localPreview ? (
+            /* Preview after successful upload */
+            <div className="relative overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={localPreview}
+                alt="Uploaded preview"
+                className="h-56 w-full object-cover"
+              />
+              <div className="flex items-center justify-between gap-3 bg-emerald-50 px-4 py-2.5">
+                <span className="flex items-center gap-2 text-xs font-semibold text-emerald-700">
+                  <CheckCircle2 className="h-4 w-4" />
+                  Uploaded to Supabase Storage
+                </span>
+                <button
+                  type="button"
+                  onClick={clearImage}
+                  className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs text-slate-500 transition hover:bg-white hover:text-rose-600"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  Remove
+                </button>
+              </div>
+            </div>
+          ) : (
+            /* Drop-zone / upload trigger */
+            <label
+              htmlFor="image-file-input"
+              className={`relative flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed px-6 py-10 text-center transition-all ${
+                uploadState.status === 'uploading' ||
+                uploadState.status === 'analyzing'
+                  ? 'border-indigo-300 bg-indigo-50 opacity-80 cursor-wait'
+                  : uploadState.status === 'error'
+                    ? 'border-red-300 bg-red-50'
+                    : 'border-indigo-200 bg-white hover:border-indigo-400 hover:bg-indigo-50'
+              }`}
+            >
+              {uploadState.status === 'uploading' && (
+                <>
+                  <CloudUpload className="h-10 w-10 animate-bounce text-indigo-400" />
+                  <p className="text-sm font-semibold text-indigo-700">
+                    Uploading to Supabase Storage…
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Please wait
+                  </p>
+                </>
+              )}
 
-          <p className="mt-3 text-center text-xs text-slate-500">
-            {uploaderLabel}
-          </p>
+              {uploadState.status === 'analyzing' && (
+                <>
+                  <Loader2 className="h-10 w-10 animate-spin text-indigo-500" />
+                  <p className="text-sm font-semibold text-indigo-700">
+                    Analyzing with AI…
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    Detecting category, condition &amp; description
+                  </p>
+                </>
+              )}
 
-          {/* AI Suggestions Review */}
-          {aiState === 'ready' && suggestion && (
+              {uploadState.status === 'error' && (
+                <>
+                  <AlertCircle className="h-10 w-10 text-red-400" />
+                  <p className="text-sm font-semibold text-red-700">
+                    {uploadState.message}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Click to try again
+                  </p>
+                </>
+              )}
+
+              {uploadState.status === 'idle' && (
+                <>
+                  <ImagePlus className="h-10 w-10 text-indigo-400" />
+                  <p className="text-sm font-semibold text-slate-700">
+                    Click to upload a photo
+                  </p>
+                  <p className="text-xs text-slate-400">
+                    PNG, JPG or WEBP · Max 10 MB
+                  </p>
+                </>
+              )}
+
+              {/* Hidden real file input */}
+              <input
+                id="image-file-input"
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                disabled={
+                  uploadState.status === 'uploading' ||
+                  uploadState.status === 'analyzing'
+                }
+                onChange={handleFileChange}
+              />
+            </label>
+          )}
+
+          {/* AI analysis error (image uploaded OK but Vision API failed) */}
+          {uploadState.status === 'done' && uploadState.aiError && (
+            <div className="mt-4 flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-700">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+              <span>
+                <strong>AI analysis unavailable:</strong> {uploadState.aiError}{' '}
+                You can still fill in the details manually and publish.
+              </span>
+            </div>
+          )}
+
+          {/* AI Suggestions Review panel */}
+          {uploadState.status === 'done' && suggestion && (
             <div className="mt-5 space-y-3">
               <div className="flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-indigo-500" />
@@ -246,16 +354,24 @@ export default function NewListingPage() {
                   }
                 />
               </div>
-              <p className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-700">
-                ✏️ &nbsp;The fields below have been pre-filled. Review and make any edits before publishing.
+              <p className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                ✏️&nbsp; The fields below have been pre-filled. Review and edit
+                before publishing.
               </p>
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Listing Form ── */}
+      {/* ── Listing form ── */}
       <form action={formAction} className="space-y-6">
+        {/*
+          Pass the public Storage URL as a hidden field.
+          The Server Action reads this — never accepting file blobs or raw
+          binary data, which keeps the action boundary clean.
+        */}
+        <input type="hidden" name="image_url" value={publicUrl} />
+
         {/* Error banner */}
         {state.error && (
           <div
@@ -284,9 +400,7 @@ export default function NewListingPage() {
             placeholder="e.g. HP 14 Laptop, CLRS Textbook…"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className={InputClass(
-              aiState === 'ready' ? 'border-emerald-300 bg-emerald-50' : ''
-            )}
+            className={inputCls(aiReady ? 'border-emerald-300 bg-emerald-50' : '')}
           />
         </div>
 
@@ -305,8 +419,8 @@ export default function NewListingPage() {
               required
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className={InputClass(
-                `appearance-none ${aiState === 'ready' ? 'border-emerald-300 bg-emerald-50' : ''}`
+              className={inputCls(
+                `appearance-none ${aiReady ? 'border-emerald-300 bg-emerald-50' : ''}`
               )}
             >
               <option value="">Select category…</option>
@@ -331,8 +445,8 @@ export default function NewListingPage() {
               required
               value={condition}
               onChange={(e) => setCondition(e.target.value)}
-              className={InputClass(
-                `appearance-none ${aiState === 'ready' ? 'border-emerald-300 bg-emerald-50' : ''}`
+              className={inputCls(
+                `appearance-none ${aiReady ? 'border-emerald-300 bg-emerald-50' : ''}`
               )}
             >
               <option value="">Select condition…</option>
@@ -360,8 +474,8 @@ export default function NewListingPage() {
             placeholder="Describe the item's condition, what's included, any defects…"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className={InputClass(
-              `resize-none ${aiState === 'ready' ? 'border-emerald-300 bg-emerald-50' : ''}`
+            className={inputCls(
+              `resize-none ${aiReady ? 'border-emerald-300 bg-emerald-50' : ''}`
             )}
           />
         </div>
@@ -382,7 +496,7 @@ export default function NewListingPage() {
               min={0}
               step={1}
               placeholder="Leave blank if free"
-              className={InputClass()}
+              className={inputCls()}
             />
           </div>
 
@@ -398,25 +512,25 @@ export default function NewListingPage() {
               name="location"
               type="text"
               placeholder="e.g. Hostel Block C, Library…"
-              className={InputClass()}
+              className={inputCls()}
             />
           </div>
         </div>
 
-        {/* Seller name */}
+        {/* Seller name — shown only when not authenticated */}
         <div>
           <FieldLabel>
             <span className="flex items-center gap-2">
               <User className="h-3.5 w-3.5 text-slate-400" />
-              Your Name
+              Display Name
             </span>
           </FieldLabel>
           <input
             id="listing-seller-name"
             name="seller_name"
             type="text"
-            placeholder="e.g. Bhaskar R."
-            className={InputClass()}
+            placeholder="e.g. Bhaskar R. (defaults to your email prefix)"
+            className={inputCls()}
           />
         </div>
 
@@ -432,7 +546,7 @@ export default function NewListingPage() {
           <button
             id="publish-listing-btn"
             type="submit"
-            disabled={isPending}
+            disabled={isPending || uploadState.status === 'uploading' || uploadState.status === 'analyzing'}
             className="flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-8 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-60"
           >
             {isPending ? (

@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { createServerClient } from "@/utils/supabase/server";
+import { formatDistanceToNow, format } from "date-fns";
 import {
   ArrowLeftRight,
   CheckCircle2,
@@ -19,80 +22,13 @@ import {
   GraduationCap,
   BadgeCheck,
   ExternalLink,
+  Plus,
 } from "lucide-react";
 
 export const metadata: Metadata = {
   title: "My Profile",
   description: "Manage your CampusHub profile, listings, and account settings.",
 };
-
-// ── Placeholder data ──────────────────────────────────────────────────────────
-const USER = {
-  name: "Alex Mercer",
-  username: "alex.mercer",
-  branch: "B.S. Computer Science",
-  year: "Junior",
-  college: "Institute of Technology",
-  location: "Hostel Block D",
-  joinedYear: "2024",
-  avatar: null as string | null, // no real avatar — we render initials
-  stats: {
-    activeListings: 12,
-    completedTrades: 4,
-    lostFoundReports: 2,
-    rating: 4.8,
-  },
-};
-
-const MY_LISTINGS = [
-  {
-    id: "l1",
-    title: "Introduction to Algorithms (CLRS, 4th ed.)",
-    category: "Books & Textbooks",
-    price: 45,
-    priceLabel: "₹45",
-    condition: "Good",
-    status: "available",
-    daysAgo: 2,
-  },
-  {
-    id: "l2",
-    title: "TI-84 Plus CE Graphing Calculator",
-    category: "Electronics",
-    price: null,
-    priceLabel: "For Exchange",
-    condition: "Like New",
-    status: "available",
-    daysAgo: 5,
-  },
-  {
-    id: "l3",
-    title: "Engineering Drawing Kit (Staedtler)",
-    category: "Stationery",
-    price: 28,
-    priceLabel: "₹28",
-    condition: "Fair",
-    status: "reserved",
-    daysAgo: 8,
-  },
-];
-
-const COMPLETED_TRADES = [
-  {
-    id: "t1",
-    title: "HP 15 Laptop Charger (65W)",
-    price: 12,
-    buyer: "Priya M.",
-    date: "Aug 14, 2026",
-  },
-  {
-    id: "t2",
-    title: "Data Structures Textbook",
-    price: 22,
-    buyer: "Rohan S.",
-    date: "Aug 7, 2026",
-  },
-];
 
 const SETTINGS_LINKS = [
   { icon: User, label: "Personal Information", href: "/profile/personal" },
@@ -134,20 +70,23 @@ function StatCard({
   );
 }
 
-function ListingCard({
-  listing,
-}: {
-  listing: (typeof MY_LISTINGS)[number];
-}) {
+function ListingCard({ listing }: { listing: any }) {
   const conditionClass =
     CONDITION_COLORS[listing.condition] ?? "bg-slate-100 text-slate-500";
   const isReserved = listing.status === "reserved";
+  const daysAgo = formatDistanceToNow(new Date(listing.created_at));
+  const imageUrl = listing.image_urls?.[0];
+  const priceLabel = listing.price != null ? `₹${listing.price.toLocaleString('en-IN')}` : "Free";
 
   return (
     <div className="group flex items-start gap-4 rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition-all hover:border-indigo-100 hover:shadow-md">
-      {/* Icon placeholder */}
-      <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-100 to-violet-100 text-2xl">
-        <Package className="h-6 w-6 text-indigo-300" />
+      <div className="relative flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-br from-indigo-100 to-violet-100 text-2xl">
+        {imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={imageUrl} alt={listing.title} className="h-full w-full object-cover" />
+        ) : (
+          <Package className="h-6 w-6 text-indigo-300" />
+        )}
       </div>
 
       <div className="flex-1 min-w-0">
@@ -180,13 +119,13 @@ function ListingCard({
           <span>·</span>
           <span className="flex items-center gap-1">
             <Clock className="h-3 w-3" />
-            {listing.daysAgo}d ago
+            {daysAgo} ago
           </span>
         </div>
 
         <div className="mt-2 flex items-center justify-between">
           <span className="text-base font-bold text-indigo-600">
-            {listing.priceLabel}
+            {priceLabel}
           </span>
           <Link
             href={`/exchange/${listing.id}/edit`}
@@ -202,12 +141,48 @@ function ListingCard({
 }
 
 // ── Page ──────────────────────────────────────────────────────────────────────
-export default function ProfilePage() {
-  const initials = USER.name
-    .split(" ")
-    .map((w) => w[0])
-    .join("")
-    .toUpperCase();
+export default async function ProfilePage() {
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect("/login?next=/profile");
+  }
+
+  // Fetch items belonging to this user
+  const { data: myItems } = await supabase
+    .from("items")
+    .select("*")
+    .eq("seller_id", user.id)
+    .order("created_at", { ascending: false });
+
+  const items = myItems || [];
+  const activeItems = items.filter((item) => item.status !== "sold");
+  const soldItems = items.filter((item) => item.status === "sold");
+
+  // Fetch reports belonging to this user
+  const { count: reportsCount } = await supabase
+    .from("reports")
+    .select("*", { count: "exact", head: true })
+    .eq("reporter_id", user.id);
+
+  const userName = user.email?.split("@")[0] || "User";
+  const initials = userName.substring(0, 2).toUpperCase();
+
+  const USER = {
+    name: userName,
+    branch: "AKTU Student",
+    year: "Active",
+    joinedYear: new Date(user.created_at).getFullYear(),
+    location: "Campus",
+    avatar: null, // no avatar support yet
+    stats: {
+      activeListings: activeItems.length,
+      completedTrades: soldItems.length,
+      lostFoundReports: reportsCount || 0,
+      rating: soldItems.length > 0 ? 5.0 : 0.0,
+    },
+  };
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -225,16 +200,7 @@ export default function ProfilePage() {
               {/* Avatar */}
               <div className="-mt-10 mb-4 flex items-end justify-between">
                 <div className="flex h-20 w-20 items-center justify-center rounded-2xl border-4 border-white bg-indigo-600 text-xl font-bold text-white shadow-md">
-                  {USER.avatar ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={USER.avatar}
-                      alt={USER.name}
-                      className="h-full w-full rounded-2xl object-cover"
-                    />
-                  ) : (
-                    initials
-                  )}
+                  {initials}
                 </div>
                 <Link
                   href="/profile/edit"
@@ -292,7 +258,7 @@ export default function ProfilePage() {
                   ))}
                 </div>
                 <span className="text-sm font-bold text-amber-700">
-                  {USER.stats.rating}
+                  {USER.stats.rating.toFixed(1)}
                 </span>
                 <span className="text-xs text-amber-600">
                   / {USER.stats.completedTrades} trades
@@ -302,7 +268,7 @@ export default function ProfilePage() {
           </div>
 
           {/* ── Account Settings ── */}
-          <div className="rounded-3xl border border-slate-100 bg-white shadow-sm overflow-hidden">
+          <div className="overflow-hidden rounded-3xl border border-slate-100 bg-white shadow-sm">
             <div className="border-b border-slate-100 px-5 py-3">
               <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">
                 Account Settings
@@ -313,11 +279,11 @@ export default function ProfilePage() {
                 <Link
                   key={href}
                   href={href}
-                  className="flex items-center gap-3 px-5 py-3.5 text-sm text-slate-700 transition hover:bg-slate-50 hover:text-indigo-700 group border-b border-slate-50 last:border-0"
+                  className="group flex items-center gap-3 border-b border-slate-50 px-5 py-3.5 text-sm text-slate-700 transition hover:bg-slate-50 hover:text-indigo-700 last:border-0"
                 >
-                  <Icon className="h-4 w-4 text-slate-400 group-hover:text-indigo-500 transition-colors" />
+                  <Icon className="h-4 w-4 text-slate-400 transition-colors group-hover:text-indigo-500" />
                   {label}
-                  <ChevronRight className="ml-auto h-4 w-4 text-slate-300 group-hover:text-indigo-400 transition-colors" />
+                  <ChevronRight className="ml-auto h-4 w-4 text-slate-300 transition-colors group-hover:text-indigo-400" />
                 </Link>
               ))}
             </nav>
@@ -355,7 +321,7 @@ export default function ProfilePage() {
               <StatCard
                 icon={TrendingUp}
                 label="Seller Rating"
-                value={`${USER.stats.rating}★`}
+                value={`${USER.stats.rating.toFixed(1)}★`}
                 accent="bg-amber-500"
               />
             </div>
@@ -370,30 +336,39 @@ export default function ProfilePage() {
               >
                 My Listings
                 <span className="ml-2 rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-bold text-indigo-600">
-                  {MY_LISTINGS.length}
+                  {activeItems.length}
                 </span>
               </h2>
               <Link
                 href="/exchange/new"
                 className="flex items-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-700"
               >
-                + New Listing
+                <Plus className="h-4 w-4" />
+                New Listing
               </Link>
             </div>
 
             <div className="space-y-3">
-              {MY_LISTINGS.map((listing) => (
-                <ListingCard key={listing.id} listing={listing} />
-              ))}
+              {activeItems.length > 0 ? (
+                activeItems.map((listing) => (
+                  <ListingCard key={listing.id} listing={listing} />
+                ))
+              ) : (
+                <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-10 text-center">
+                  <p className="text-sm text-slate-500">You don't have any active listings.</p>
+                </div>
+              )}
             </div>
 
-            <Link
-              href="/exchange?seller=me"
-              className="mt-3 flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 py-2.5 text-sm font-medium text-slate-500 transition hover:bg-slate-50 hover:text-indigo-600"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              View all my listings
-            </Link>
+            {activeItems.length > 0 && (
+              <Link
+                href="/exchange?seller=me"
+                className="mt-3 flex items-center justify-center gap-1.5 rounded-xl border border-slate-200 py-2.5 text-sm font-medium text-slate-500 transition hover:bg-slate-50 hover:text-indigo-600"
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                View all my listings
+              </Link>
+            )}
           </section>
 
           {/* ── Completed Trades ── */}
@@ -404,39 +379,45 @@ export default function ProfilePage() {
             >
               Completed Trades
               <span className="ml-2 rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-bold text-emerald-600">
-                {COMPLETED_TRADES.length}
+                {soldItems.length}
               </span>
             </h2>
 
-            <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
-              {COMPLETED_TRADES.map((trade, i) => (
-                <div
-                  key={trade.id}
-                  className={`flex items-center justify-between gap-4 px-5 py-4 ${
-                    i !== COMPLETED_TRADES.length - 1
-                      ? "border-b border-slate-50"
-                      : ""
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-                      <CheckCircle2 className="h-4 w-4" />
-                    </span>
-                    <div>
-                      <p className="text-sm font-semibold text-slate-800">
-                        {trade.title}
-                      </p>
-                      <p className="text-xs text-slate-400">
-                        Sold to {trade.buyer} · {trade.date}
-                      </p>
+            {soldItems.length > 0 ? (
+              <div className="overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+                {soldItems.map((trade, i) => (
+                  <div
+                    key={trade.id}
+                    className={`flex items-center justify-between gap-4 px-5 py-4 ${
+                      i !== soldItems.length - 1
+                        ? "border-b border-slate-50"
+                        : ""
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                        <CheckCircle2 className="h-4 w-4" />
+                      </span>
+                      <div>
+                        <p className="text-sm font-semibold text-slate-800">
+                          {trade.title}
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          Sold · {format(new Date(trade.updated_at), 'MMM d, yyyy')}
+                        </p>
+                      </div>
                     </div>
+                    <span className="shrink-0 text-sm font-bold text-emerald-600">
+                      {trade.price ? `₹${trade.price.toLocaleString('en-IN')}` : 'Free'}
+                    </span>
                   </div>
-                  <span className="shrink-0 text-sm font-bold text-emerald-600">
-                    ₹{trade.price}
-                  </span>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 py-8 text-center text-sm text-slate-500">
+                No completed trades yet.
+              </div>
+            )}
           </section>
         </div>
       </div>

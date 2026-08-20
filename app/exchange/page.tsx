@@ -60,87 +60,7 @@ const GRADIENTS = [
   'from-fuchsia-400 to-purple-500',
 ]
 
-// ── Static seed data shown when DB has no rows ────────────────────────────────
-const SEED_ITEMS: Item[] = [
-  {
-    id: 'seed-1',
-    title: 'Calculus: Early Transcendentals (9th ed.)',
-    description: 'Minor highlights in first two chapters only.',
-    price: 450,
-    category: 'Books & Textbooks',
-    condition: 'Good',
-    status: 'available',
-    location: 'Hostel Block C',
-    seller_name: 'Aryan K.',
-    image_urls: [],
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'seed-2',
-    title: 'HP 15 Laptop (i5, 8GB RAM)',
-    description: 'Works perfectly, charger included.',
-    price: 22000,
-    category: 'Electronics',
-    condition: 'Good',
-    status: 'available',
-    location: 'Main Campus',
-    seller_name: 'Priya M.',
-    image_urls: [],
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'seed-3',
-    title: 'Study Desk + Chair Combo',
-    description: 'IKEA desk, scratches on top. Chair is flawless.',
-    price: 3200,
-    category: 'Furniture',
-    condition: 'Fair',
-    status: 'available',
-    location: 'Hostel Block A',
-    seller_name: 'Rohan S.',
-    image_urls: [],
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'seed-4',
-    title: 'JBL Tune 510BT Headphones',
-    description: 'Box and cable included, used for 3 months.',
-    price: 1400,
-    category: 'Electronics',
-    condition: 'Like New',
-    status: 'available',
-    location: 'Library',
-    seller_name: 'Sneha T.',
-    image_urls: [],
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'seed-5',
-    title: 'Data Structures & Algorithms — CLRS',
-    description: 'No writing inside, cover slightly worn.',
-    price: 550,
-    category: 'Books & Textbooks',
-    condition: 'Like New',
-    status: 'available',
-    location: 'CS Department',
-    seller_name: 'Karan V.',
-    image_urls: [],
-    created_at: new Date().toISOString(),
-  },
-  {
-    id: 'seed-6',
-    title: 'Casio FX-991EX Scientific Calculator',
-    description: 'All functions working. Spare batteries included.',
-    price: 600,
-    category: 'Electronics',
-    condition: 'Good',
-    status: 'reserved',
-    location: 'Maths Dept.',
-    seller_name: 'Ananya B.',
-    image_urls: [],
-    created_at: new Date().toISOString(),
-  },
-]
+
 
 // ── Item Card ────────────────────────────────────────────────────────────────
 function ItemCard({ item, index }: { item: Item; index: number }) {
@@ -150,7 +70,7 @@ function ItemCard({ item, index }: { item: Item; index: number }) {
   const isReserved = item.status === 'reserved'
 
   return (
-    <article className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
+    <Link href={`/exchange/${item.id}`} className="group relative flex flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg">
       {/* Thumbnail */}
       <div
         className={`relative flex h-44 items-center justify-center bg-gradient-to-br ${gradient} overflow-hidden`}
@@ -213,7 +133,7 @@ function ItemCard({ item, index }: { item: Item; index: number }) {
           <span className="text-xs text-slate-400">{item.seller_name}</span>
         </div>
       </div>
-    </article>
+    </Link>
   )
 }
 
@@ -225,10 +145,10 @@ export default async function ExchangePage({
   const activeCategory =
     typeof params?.category === 'string' ? params.category : null
 
-  // Fetch from Supabase; fall back to seed data so the UI always looks great
+  // Fetch from Supabase
   let items: Item[] = []
   try {
-    const supabase = createServerClient()
+    const supabase = await createServerClient()
     let query = supabase
       .from('items')
       .select('*')
@@ -242,17 +162,8 @@ export default async function ExchangePage({
     const { data, error } = await query
     if (error) throw error
     items = (data as Item[]) ?? []
-  } catch {
-    // DB not connected yet — show seed data so the UI is still demonstrable
-    items = activeCategory
-      ? SEED_ITEMS.filter((i) => i.category === activeCategory)
-      : SEED_ITEMS
-  }
-
-  if (items.length === 0) {
-    items = activeCategory
-      ? SEED_ITEMS.filter((i) => i.category === activeCategory)
-      : SEED_ITEMS
+  } catch (error) {
+    console.error('Failed to load items', error)
   }
 
   return (

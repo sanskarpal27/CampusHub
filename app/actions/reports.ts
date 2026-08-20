@@ -59,7 +59,7 @@ export async function createReport(
   }
 
   // ── 3. Insert into Supabase ───────────────────────────────────────────────
-  const supabase = createServerClient()
+  const supabase = await createServerClient()
 
   const { error: dbError } = await supabase.from('reports').insert({
     type,

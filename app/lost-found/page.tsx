@@ -10,6 +10,7 @@ import {
   Plus,
 } from 'lucide-react'
 import { createServerClient } from '@/utils/supabase/server'
+import { formatDistanceToNow } from 'date-fns'
 
 export const metadata: Metadata = {
   title: 'Lost & Found',
@@ -32,95 +33,10 @@ type Report = {
   created_at: string
 }
 
-// ── Seed data ──────────────────────────────────────────────────────────────────
-const SEED_REPORTS: Report[] = [
-  {
-    id: 'seed-1',
-    type: 'lost',
-    title: 'Blue JBL Earbuds Case',
-    category: 'Electronics',
-    status: 'open',
-    location: 'Library, 2nd Floor',
-    date_occurred: '2026-08-19',
-    description: 'Small blue plastic case. Left it near the study carrels.',
-    reporter_name: 'Mihail P.',
-    image_urls: [],
-    created_at: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'seed-2',
-    type: 'found',
-    title: 'Student ID Card — Suresh Rao',
-    category: 'ID Card',
-    status: 'open',
-    location: 'Main Cafeteria',
-    date_occurred: '2026-08-20',
-    description: 'Found on a table near the vending machines.',
-    reporter_name: 'Divya R.',
-    image_urls: [],
-    created_at: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'seed-3',
-    type: 'lost',
-    title: 'Grey Hoodie (Size L)',
-    category: 'Clothing',
-    status: 'resolved',
-    location: 'Gym Locker Room',
-    date_occurred: '2026-08-18',
-    description: 'Plain grey Uniqlo hoodie. Name tag on the inner collar.',
-    reporter_name: 'Karan V.',
-    image_urls: [],
-    created_at: new Date(Date.now() - 26 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'seed-4',
-    type: 'found',
-    title: 'Silver Keys with Anchor Keychain',
-    category: 'Keys',
-    status: 'open',
-    location: 'Parking Lot B',
-    date_occurred: '2026-08-19',
-    description: 'Three keys on a silver ring. Left with the Security desk.',
-    reporter_name: 'Ananya B.',
-    image_urls: [],
-    created_at: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'seed-5',
-    type: 'lost',
-    title: 'Aqua Blue Hydro Flask (600ml)',
-    category: 'Water Bottle',
-    status: 'open',
-    location: 'Student Union Building',
-    date_occurred: '2026-08-20',
-    description: 'Aqua-coloured flask with a sticker of a mountain on it.',
-    reporter_name: 'Riya S.',
-    image_urls: [],
-    created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'seed-6',
-    type: 'found',
-    title: 'Black Leather Wallet',
-    category: 'Wallet',
-    status: 'open',
-    location: 'Engineering Block Corridor',
-    date_occurred: '2026-08-20',
-    description: 'Wallet with cash and two debit cards. No ID visible.',
-    reporter_name: 'Tanmay K.',
-    image_urls: [],
-    created_at: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
-  },
-]
 
-// ── Utilities ─────────────────────────────────────────────────────────────────
+
 function relativeTime(iso: string): string {
-  const diff = (Date.now() - new Date(iso).getTime()) / 1000
-  if (diff < 60) return 'Just now'
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`
-  return `${Math.floor(diff / 86400)}d ago`
+  return formatDistanceToNow(new Date(iso), { addSuffix: true })
 }
 
 // ── Card gradient placeholders ────────────────────────────────────────────────
@@ -241,10 +157,10 @@ export default async function LostFoundPage({ searchParams }: PageProps<'/lost-f
   const activeFilter =
     typeof params?.filter === 'string' ? params.filter : 'all'
 
-  // Fetch from Supabase with graceful seed fallback
+  // Fetch from Supabase
   let reports: Report[] = []
   try {
-    const supabase = createServerClient()
+    const supabase = await createServerClient()
     let query = supabase
       .from('reports')
       .select('*')
@@ -257,18 +173,8 @@ export default async function LostFoundPage({ searchParams }: PageProps<'/lost-f
     const { data, error } = await query
     if (error) throw error
     reports = (data as Report[]) ?? []
-  } catch {
-    reports =
-      activeFilter === 'all'
-        ? SEED_REPORTS
-        : SEED_REPORTS.filter((r) => r.type === activeFilter)
-  }
-
-  if (reports.length === 0) {
-    reports =
-      activeFilter === 'all'
-        ? SEED_REPORTS
-        : SEED_REPORTS.filter((r) => r.type === activeFilter)
+  } catch (error) {
+    console.error('Failed to load reports', error)
   }
 
   const lostCount = reports.filter((r) => r.type === 'lost').length
