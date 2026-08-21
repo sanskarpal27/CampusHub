@@ -190,7 +190,7 @@ export default async function ProfilePage() {
 
   const USER = {
     name: userName,
-    branch: profile?.course || "AKTU Student",
+    branch: profile?.course || "JSS Student",
     year: profile ? `Class of ${profile.batch}` : "Active",
     joinedYear: new Date(user.created_at).getFullYear(),
     location: profile?.address || "Campus",

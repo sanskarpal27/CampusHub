@@ -148,102 +148,6 @@ const SEED_REPORTS: Record<string, Report> = {
   },
 }
 
-// ── Mock AI matches keyed by report id ────────────────────────────────────────
-const AI_MATCHES: Record<string, AiMatch[]> = {
-  'seed-1': [
-    {
-      id: 'seed-2',
-      title: 'JBL Tune Earbuds (found)',
-      type: 'found',
-      location: 'Library Reference Desk',
-      confidence: 89,
-      reason: 'Same brand, same building, 1-day overlap',
-      reporter: 'Tanmay K.',
-      timeAgo: '4h ago',
-    },
-    {
-      id: 'm2',
-      title: 'Small blue electronics case',
-      type: 'found',
-      location: 'Library, Ground Floor',
-      confidence: 61,
-      reason: 'Similar size and colour described',
-      reporter: 'Priya M.',
-      timeAgo: '6h ago',
-    },
-    {
-      id: 'm3',
-      title: 'Wireless earbuds in grey pouch',
-      type: 'found',
-      location: 'Study Room 3, Library',
-      confidence: 34,
-      reason: 'Same campus zone, electronics category',
-      reporter: 'Rohan S.',
-      timeAgo: '2d ago',
-    },
-  ],
-  'seed-5': [
-    {
-      id: 'm4',
-      title: 'Aqua flask found at Library reference desk',
-      type: 'found',
-      location: 'Library Reference Desk',
-      confidence: 92,
-      reason: 'Exact colour match, same campus zone, overlapping date',
-      reporter: 'Sneha T.',
-      timeAgo: '1h ago',
-    },
-    {
-      id: 'm5',
-      title: 'Blue/teal water bottle (600ml)',
-      type: 'found',
-      location: 'Student Union Café',
-      confidence: 45,
-      reason: 'Colour and volume match; different floor',
-      reporter: 'Aryan K.',
-      timeAgo: '3h ago',
-    },
-  ],
-}
-
-// ── Generate generic AI matches for any report ────────────────────────────────
-function generateMatches(report: Report): AiMatch[] {
-  if (AI_MATCHES[report.id]) return AI_MATCHES[report.id]
-  const opposite = report.type === 'lost' ? 'found' : 'lost'
-  return [
-    {
-      id: 'gen-1',
-      title: `${report.category} item ${opposite === 'found' ? 'found' : 'reported lost'} nearby`,
-      type: opposite,
-      location: report.location ?? 'Campus Area',
-      confidence: 78,
-      reason: `Same category (${report.category}), overlapping campus zone`,
-      reporter: 'Campus AI',
-      timeAgo: '2h ago',
-    },
-    {
-      id: 'gen-2',
-      title: `Similar ${report.category.toLowerCase()} — ${opposite}`,
-      type: opposite,
-      location: 'Admin Block',
-      confidence: 42,
-      reason: 'Category match; different location',
-      reporter: 'Campus AI',
-      timeAgo: '1d ago',
-    },
-    {
-      id: 'gen-3',
-      title: `Unidentified ${report.category.toLowerCase()}`,
-      type: opposite,
-      location: 'Security Desk',
-      confidence: 21,
-      reason: 'Loose category match; may be unrelated',
-      reporter: 'Campus AI',
-      timeAgo: '3d ago',
-    },
-  ]
-}
-
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function relativeTime(iso: string): string {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000
@@ -315,7 +219,62 @@ export default async function ReportDetailPage(
   const isLost = report.type === 'lost'
   const isResolved = report.status === 'resolved'
   const isOwner = !!(user && report.reporter_id && user.id === report.reporter_id)
-  const matches = generateMatches(report)
+
+  // ── AI Match Calculation ───────────────────────────────────────────────────
+  const oppositeType = report.type === 'lost' ? 'found' : 'lost'
+  const { data: candidates } = await supabase
+    .from('reports')
+    .select('*')
+    .neq('id', report.id)
+    .eq('status', 'open')
+    .eq('type', oppositeType)
+    .eq('category', report.category)
+
+  const matches = (candidates || [])
+    .map((candidate: any) => {
+      let score = 50
+
+      const currentLocWords = report!.location?.toLowerCase().match(/\b\w+\b/g) || ([] as string[])
+      const candidateLocWords = candidate.location?.toLowerCase().match(/\b\w+\b/g) || ([] as string[])
+      if (
+        currentLocWords.some(
+          (w: string) => w.length > 2 && candidateLocWords.includes(w)
+        )
+      ) {
+        score += 25
+      }
+
+      const currentText = `${report!.title} ${report!.description}`
+        .toLowerCase()
+        .match(/\b\w+\b/g) || ([] as string[])
+      const candidateText = `${candidate.title} ${candidate.description}`
+        .toLowerCase()
+        .match(/\b\w+\b/g) || ([] as string[])
+      if (
+        currentText.some(
+          (w: string) => w.length > 2 && candidateText.includes(w)
+        )
+      ) {
+        score += 25
+      }
+
+      return {
+        id: candidate.id,
+        title: candidate.title,
+        type: candidate.type,
+        location: candidate.location || 'Unknown location',
+        confidence: score,
+        reason:
+          score === 100
+            ? 'Strong location & description match'
+            : score === 75
+              ? 'Partial details match'
+              : 'Category match',
+        reporter: candidate.reporter_name || 'Anonymous',
+        timeAgo: relativeTime(candidate.created_at),
+      }
+    })
+    .sort((a, b) => b.confidence - a.confidence)
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
@@ -503,7 +462,14 @@ export default async function ReportDetailPage(
             </div>
 
             {/* Match list */}
-            <div className="divide-y divide-slate-50 px-4 py-2">
+            {matches.length === 0 ? (
+              <div className="flex flex-col items-center justify-center p-8 text-center">
+                <span className="mb-2 text-4xl opacity-50">🔍</span>
+                <p className="text-sm font-semibold text-slate-700">No potential matches found yet.</p>
+                <p className="text-xs text-slate-500">We&apos;ll keep looking!</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-50 px-4 py-2">
               {matches.map((match) => (
                 <Link
                   key={match.id}
@@ -590,7 +556,8 @@ export default async function ReportDetailPage(
                   </div>
                 </Link>
               ))}
-            </div>
+              </div>
+            )}
 
             {/* AI disclaimer */}
             <div className="border-t border-slate-100 bg-slate-50 px-5 py-3">

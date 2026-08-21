@@ -4,7 +4,7 @@ import { redirect } from 'next/navigation'
 import { createServerClient } from '@/utils/supabase/server'
 
 // ── Allowed email domains ──────────────────────────────────────────────────────
-const ALLOWED_DOMAINS = ['student.aktu.ac.in', 'aktu.ac.in']
+const ALLOWED_DOMAINS = ['student.jssaten.ac.in', 'jssaten.ac.in']
 
 export type AuthActionState = {
   error?: string
@@ -59,7 +59,7 @@ export async function signIn(
 }
 
 /**
- * Register a new AKTU student account.
+ * Register a new JSS student account.
  */
 export async function signUp(
   _prevState: AuthActionState,
@@ -90,7 +90,7 @@ export async function signUp(
 
   if (!ALLOWED_DOMAINS.includes(domain)) {
     return {
-      error: 'Only verified AKTU student emails are allowed.',
+      error: 'Only verified JSS student emails are allowed.',
     }
   }
 

@@ -94,7 +94,7 @@ export default function LoginPage({
           <p className="mt-1 text-sm text-slate-500">
             {mode === 'login'
               ? 'Sign in to your CampusHub account'
-              : 'Use your AKTU email to create an account'}
+              : 'Use your JSS email to create an account'}
           </p>
         </div>
 
@@ -154,7 +154,7 @@ export default function LoginPage({
                   htmlFor="auth-email"
                   className="mb-1.5 block text-xs font-semibold text-slate-600"
                 >
-                  AKTU Email Address
+                  JSS Email Address
                 </label>
                 <div className="relative">
                   <Mail className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -167,8 +167,8 @@ export default function LoginPage({
                     disabled={isPending}
                     placeholder={
                       mode === 'signup'
-                        ? 'you@student.aktu.ac.in'
-                        : 'your@aktu.ac.in'
+                        ? 'you@student.jssaten.ac.in'
+                        : 'your@jssaten.ac.in'
                     }
                     className={`${inputBase} pl-10`}
                   />
@@ -176,7 +176,7 @@ export default function LoginPage({
                 {mode === 'signup' && (
                   <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-400">
                     <Lock className="h-3 w-3" />
-                    Only @student.aktu.ac.in and @aktu.ac.in addresses accepted
+                    Only @student.jssaten.ac.in and @jssaten.ac.in addresses accepted
                   </p>
                 )}
               </div>
@@ -281,7 +281,7 @@ export default function LoginPage({
             <Lock className="h-3 w-3" /> End-to-end secure
           </span>
           <span className="flex items-center gap-1">
-            <GraduationCap className="h-3 w-3" /> AKTU students only
+            <GraduationCap className="h-3 w-3" /> JSS students only
           </span>
         </div>
       </div>
