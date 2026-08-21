@@ -36,14 +36,30 @@ export async function signIn(
     return { error: 'Invalid email or password. Please try again.' }
   }
 
+  // Check if profile exists
+  let hasProfile = false
+  const { data: { user } } = await supabase.auth.getUser()
+  if (user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', user.id)
+      .single()
+
+    if (profile) {
+      hasProfile = true
+    }
+  }
+
+  if (user && !hasProfile) {
+    redirect('/onboarding')
+  }
+
   redirect(next)
 }
 
 /**
  * Register a new AKTU student account.
- *
- * GATEKEEPER: Only @student.aktu.ac.in and @aktu.ac.in domains are accepted.
- * Any other domain returns an error immediately — Supabase is never called.
  */
 export async function signUp(
   _prevState: AuthActionState,
@@ -53,7 +69,6 @@ export async function signUp(
   const password = formData.get('password') as string | null
   const confirmPassword = formData.get('confirm_password') as string | null
 
-  // ── 1. Basic field validation ──────────────────────────────────────────────
   if (!email || !password) {
     return { error: 'Email and password are required.' }
   }
@@ -66,7 +81,6 @@ export async function signUp(
     return { error: 'Passwords do not match.' }
   }
 
-  // ── 2. AKTU domain gatekeeper ──────────────────────────────────────────────
   const atIndex = email.lastIndexOf('@')
   if (atIndex === -1) {
     return { error: 'Please enter a valid email address.' }
@@ -76,34 +90,24 @@ export async function signUp(
 
   if (!ALLOWED_DOMAINS.includes(domain)) {
     return {
-      error:
-        'Only verified AKTU student emails are allowed. Please use your @student.aktu.ac.in or @aktu.ac.in address.',
+      error: 'Only verified AKTU student emails are allowed.',
     }
   }
 
-  // ── 3. Create Supabase user ────────────────────────────────────────────────
   const supabase = await createServerClient()
   const { error } = await supabase.auth.signUp({
     email,
     password,
-    options: {
-      // After email confirmation, redirect back to the app
-      emailRedirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'}/auth/confirm`,
-    },
   })
 
   if (error) {
-    // Map Supabase errors to friendly messages
     if (error.message.toLowerCase().includes('already registered')) {
       return { error: 'An account with this email already exists. Try signing in.' }
     }
     return { error: error.message }
   }
 
-  return {
-    message:
-      '✅ Account created! Check your AKTU inbox for a confirmation link before signing in.',
-  }
+  redirect('/onboarding')
 }
 
 /**

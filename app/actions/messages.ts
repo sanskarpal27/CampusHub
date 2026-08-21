@@ -5,11 +5,16 @@ import { revalidatePath } from "next/cache"
 
 export async function sendMessage(formData: FormData) {
   const content = formData.get("content")?.toString().trim()
-  const itemId = formData.get("item_id")?.toString()
+  const itemId = formData.get("item_id")?.toString() || null
+  const reportId = formData.get("report_id")?.toString() || null
   const receiverId = formData.get("receiver_id")?.toString()
 
-  if (!content || !itemId || !receiverId) {
+  if (!content || !receiverId) {
     return { error: "Missing required fields." }
+  }
+
+  if (!itemId && !reportId) {
+    return { error: "A message must be linked to an item or a report." }
   }
 
   const supabase = await createServerClient()
@@ -27,6 +32,7 @@ export async function sendMessage(formData: FormData) {
     .from("messages")
     .insert({
       item_id: itemId,
+      report_id: reportId,
       sender_id: user.id,
       receiver_id: receiverId,
       content,
@@ -34,7 +40,7 @@ export async function sendMessage(formData: FormData) {
 
   if (insertError) {
     console.error("Insert Message Error:", insertError)
-    return { error: "Failed to send message. Please try again." }
+    return { error: insertError.message }
   }
 
   revalidatePath("/inbox", "layout")

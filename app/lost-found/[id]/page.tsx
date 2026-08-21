@@ -16,6 +16,9 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import { createServerClient } from '@/utils/supabase/server'
+import { MarkResolvedButton } from '@/components/mark-resolved-button'
+import { IFoundThisButton } from '@/components/i-found-this-button'
+import { MessageListerModal } from '@/components/MessageListerModal'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 type Report = {
@@ -27,6 +30,7 @@ type Report = {
   location: string | null
   date_occurred: string | null
   description: string | null
+  reporter_id: string | null
   reporter_name: string | null
   contact_info: string | null
   image_urls: string[]
@@ -52,6 +56,7 @@ const SEED_REPORTS: Record<string, Report> = {
     title: 'Blue JBL Earbuds Case',
     category: 'Electronics',
     status: 'open',
+    reporter_id: null,
     location: 'Library, 2nd Floor',
     date_occurred: '2026-08-19',
     description:
@@ -67,6 +72,7 @@ const SEED_REPORTS: Record<string, Report> = {
     title: 'Student ID Card — Suresh Rao',
     category: 'ID Card',
     status: 'open',
+    reporter_id: null,
     location: 'Main Cafeteria',
     date_occurred: '2026-08-20',
     description:
@@ -82,6 +88,7 @@ const SEED_REPORTS: Record<string, Report> = {
     title: 'Grey Hoodie (Size L)',
     category: 'Clothing',
     status: 'resolved',
+    reporter_id: null,
     location: 'Gym Locker Room',
     date_occurred: '2026-08-18',
     description:
@@ -97,6 +104,7 @@ const SEED_REPORTS: Record<string, Report> = {
     title: 'Silver Keys with Anchor Keychain',
     category: 'Keys',
     status: 'open',
+    reporter_id: null,
     location: 'Parking Lot B',
     date_occurred: '2026-08-19',
     description:
@@ -112,6 +120,7 @@ const SEED_REPORTS: Record<string, Report> = {
     title: 'Aqua Blue Hydro Flask (600ml)',
     category: 'Water Bottle',
     status: 'open',
+    reporter_id: null,
     location: 'Student Union Building',
     date_occurred: '2026-08-20',
     description:
@@ -127,6 +136,7 @@ const SEED_REPORTS: Record<string, Report> = {
     title: 'Black Leather Wallet',
     category: 'Wallet',
     status: 'open',
+    reporter_id: null,
     location: 'Engineering Block Corridor',
     date_occurred: '2026-08-20',
     description:
@@ -267,10 +277,12 @@ export default async function ReportDetailPage(
 ) {
   const { id } = await props.params
 
+  const supabase = await createServerClient()
+  const { data: { user } } = await supabase.auth.getUser()
+
   // Fetch from DB or fall back to seed
   let report: Report | null = null
   try {
-    const supabase = await createServerClient()
     const { data, error } = await supabase
       .from('reports')
       .select('*')
@@ -302,6 +314,7 @@ export default async function ReportDetailPage(
 
   const isLost = report.type === 'lost'
   const isResolved = report.status === 'resolved'
+  const isOwner = !!(user && report.reporter_id && user.id === report.reporter_id)
   const matches = generateMatches(report)
 
   return (
@@ -438,24 +451,25 @@ export default async function ReportDetailPage(
             {/* Claim / Contact CTA */}
             {!isResolved && (
               <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-                <button
-                  id="secure-claim-btn"
-                  className={`flex flex-1 items-center justify-center gap-2 rounded-2xl py-3 text-sm font-bold text-white shadow-sm transition active:scale-95 ${
-                    isLost
-                      ? 'bg-indigo-600 hover:bg-indigo-700'
-                      : 'bg-rose-500 hover:bg-rose-600'
-                  }`}
-                >
-                  <Shield className="h-4 w-4" />
-                  {isLost ? 'I Found This — Claim' : 'I Lost This — Claim'}
-                </button>
-                <button
-                  id="message-finder-btn"
-                  className="flex flex-1 items-center justify-center gap-2 rounded-2xl border border-slate-200 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-50"
-                >
-                  <MessageSquare className="h-4 w-4 text-slate-500" />
-                  Message {isLost ? 'Finder' : 'Owner'}
-                </button>
+                {isOwner ? (
+                  // Reporter sees only the 'Mark as Resolved' button
+                  <MarkResolvedButton reportId={report.id} />
+                ) : (
+                  // Other users see the action + message buttons
+                  <>
+                    <IFoundThisButton
+                      reportId={report.id}
+                      reporterId={report.reporter_id ?? ''}
+                      isLost={isLost}
+                    />
+                    <MessageListerModal
+                      reportId={report.id}
+                      reporterId={report.reporter_id ?? ''}
+                      reporterName={report.reporter_name ?? 'the lister'}
+                      isOwnReport={isOwner}
+                    />
+                  </>
+                )}
               </div>
             )}
 

@@ -34,17 +34,26 @@ export async function createReport(
   _prevState: ReportActionState,
   formData: FormData
 ): Promise<ReportActionState> {
-  // ── 1. Extract & sanitise ─────────────────────────────────────────────────
+  // ── 1. Auth check ─────────────────────────────────────────────────────────
+  const supabase = await createServerClient()
+  const { data: { user }, error: authError } = await supabase.auth.getUser()
+
+  if (authError || !user) {
+    return { error: 'You must be logged in to file a report.' }
+  }
+
+  // ── 2. Extract & sanitise ─────────────────────────────────────────────────
   const type = (formData.get('type') as string | null)?.trim()
   const title = (formData.get('title') as string | null)?.trim()
   const category = (formData.get('category') as string | null)?.trim()
   const location = (formData.get('location') as string | null)?.trim()
   const description = (formData.get('description') as string | null)?.trim()
-  const dateRaw = formData.get('date_occurred') as string | null
+  // Accept both field name variants for flexibility
+  const dateRaw = (formData.get('date_last_seen') || formData.get('date_occurred')) as string | null
   const reporterName = (formData.get('reporter_name') as string | null)?.trim()
   const contactInfo = (formData.get('contact_info') as string | null)?.trim()
 
-  // ── 2. Server-side validation ─────────────────────────────────────────────
+  // ── 3. Server-side validation ─────────────────────────────────────────────
   if (!type || !ALLOWED_TYPES.includes(type as 'lost' | 'found')) {
     return { error: 'Report type must be "lost" or "found".' }
   }
@@ -58,27 +67,27 @@ export async function createReport(
     return { error: 'Date is not valid.' }
   }
 
-  // ── 3. Insert into Supabase ───────────────────────────────────────────────
-  const supabase = await createServerClient()
-
+  // ── 4. Insert into Supabase ───────────────────────────────────────────────
   const { error: dbError } = await supabase.from('reports').insert({
+    reporter_id: user.id,
     type,
     title,
     category,
     location: location || null,
     description: description || null,
     date_occurred: dateOccurred ? dateOccurred.toISOString().split('T')[0] : null,
-    reporter_name: reporterName || 'Anonymous',
+    reporter_name: reporterName || null,
     contact_info: contactInfo || null,
     status: 'open',
   })
 
   if (dbError) {
     console.error('[createReport] Supabase error:', dbError)
-    return { error: 'Failed to submit report. Please try again.' }
+    return { error: dbError.message }
   }
 
-  // ── 4. Revalidate feed & redirect ─────────────────────────────────────────
+  // ── 5. Revalidate feed & redirect ─────────────────────────────────────────
   revalidatePath('/lost-found')
   redirect('/lost-found')
 }
+

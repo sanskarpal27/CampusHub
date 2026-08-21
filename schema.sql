@@ -121,11 +121,15 @@ create table if not exists public.messages (
   id            uuid primary key default gen_random_uuid(),
   created_at    timestamptz not null default now(),
   
-  item_id       uuid references public.items(id) on delete cascade not null,
+  item_id       uuid references public.items(id) on delete cascade,
+  report_id     uuid references public.reports(id) on delete cascade,
   sender_id     uuid references auth.users(id) on delete cascade not null,
   receiver_id   uuid references auth.users(id) on delete cascade not null,
   content       text not null,
-  is_read       boolean not null default false
+  is_read       boolean not null default false,
+
+  -- At least one of item_id or report_id must be set
+  constraint messages_has_context check (item_id is not null or report_id is not null)
 );
 
 -- Row Level Security
@@ -140,3 +144,40 @@ create policy "Users can read their own messages"
 create policy "Users can insert messages"
   on public.messages for insert
   with check (auth.uid() = sender_id);
+
+-- ============================================================
+-- Profiles: User Onboarding Data
+-- ============================================================
+create table if not exists public.profiles (
+  id            uuid primary key references auth.users(id) on delete cascade,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  
+  full_name     text not null,
+  address       text not null,
+  course        text not null,
+  batch         text not null
+);
+
+create trigger profiles_updated_at
+  before update on public.profiles
+  for each row execute procedure public.handle_updated_at();
+
+-- Row Level Security
+alter table public.profiles enable row level security;
+
+-- Public read: anyone can view profiles (to see seller/reporter names)
+create policy "Public read access for profiles"
+  on public.profiles for select
+  using (true);
+
+-- Users can insert their own profile
+create policy "Users can insert their own profile"
+  on public.profiles for insert
+  with check (auth.uid() = id);
+
+-- Users can update their own profile
+create policy "Users can update their own profile"
+  on public.profiles for update
+  using (auth.uid() = id);
+

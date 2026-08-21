@@ -5,7 +5,15 @@ import { Send, Loader2 } from "lucide-react"
 import { sendMessage } from "@/app/actions/messages"
 import { toast } from "sonner"
 
-export function ChatReplyInput({ itemId, receiverId }: { itemId: string; receiverId: string }) {
+export function ChatReplyInput({
+  itemId,
+  reportId,
+  receiverId,
+}: {
+  itemId?: string
+  reportId?: string
+  receiverId: string
+}) {
   const formRef = useRef<HTMLFormElement>(null)
   const [isPending, startTransition] = useTransition()
 
@@ -26,9 +34,10 @@ export function ChatReplyInput({ itemId, receiverId }: { itemId: string; receive
   return (
     <div className="sticky bottom-0 border-t border-slate-200 bg-white p-4">
       <form ref={formRef} action={handleSubmit} className="mx-auto flex max-w-3xl items-end gap-3">
-        <input type="hidden" name="item_id" value={itemId} />
+        {itemId && <input type="hidden" name="item_id" value={itemId} />}
+        {reportId && <input type="hidden" name="report_id" value={reportId} />}
         <input type="hidden" name="receiver_id" value={receiverId} />
-        
+
         <div className="flex-1 rounded-2xl border border-slate-200 bg-slate-50 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-500">
           <textarea
             name="content"
@@ -56,3 +65,4 @@ export function ChatReplyInput({ itemId, receiverId }: { itemId: string; receive
     </div>
   )
 }
+

@@ -24,6 +24,7 @@ import {
   ExternalLink,
   Plus,
 } from "lucide-react";
+import { MarkSoldButton } from "@/components/mark-sold-button";
 
 export const metadata: Metadata = {
   title: "My Profile",
@@ -73,6 +74,7 @@ function StatCard({
 function ListingCard({ listing }: { listing: any }) {
   const conditionClass =
     CONDITION_COLORS[listing.condition] ?? "bg-slate-100 text-slate-500";
+  const isSold = listing.status === "sold";
   const isReserved = listing.status === "reserved";
   const daysAgo = formatDistanceToNow(new Date(listing.created_at));
   const imageUrl = listing.image_urls?.[0];
@@ -87,6 +89,11 @@ function ListingCard({ listing }: { listing: any }) {
         ) : (
           <Package className="h-6 w-6 text-indigo-300" />
         )}
+        {isSold && (
+          <div className="absolute inset-0 flex items-center justify-center rounded-xl bg-slate-900/50">
+            <span className="text-[10px] font-bold text-white">SOLD</span>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 min-w-0">
@@ -96,12 +103,14 @@ function ListingCard({ listing }: { listing: any }) {
           </p>
           <span
             className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${
-              isReserved
+              isSold
+                ? "bg-slate-100 text-slate-500"
+                : isReserved
                 ? "bg-amber-50 text-amber-700"
                 : "bg-emerald-50 text-emerald-700"
             }`}
           >
-            {isReserved ? "Reserved" : "Active"}
+            {isSold ? "Sold" : isReserved ? "Reserved" : "Active"}
           </span>
         </div>
 
@@ -127,13 +136,16 @@ function ListingCard({ listing }: { listing: any }) {
           <span className="text-base font-bold text-indigo-600">
             {priceLabel}
           </span>
-          <Link
-            href={`/exchange/${listing.id}/edit`}
-            className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-indigo-600 hover:ring-indigo-200"
-          >
-            <Edit3 className="h-3 w-3" />
-            Edit
-          </Link>
+          <div className="flex items-center gap-2">
+            {!isSold && <MarkSoldButton itemId={listing.id} />}
+            <Link
+              href={`/exchange/${listing.id}/edit`}
+              className="flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-medium text-slate-500 ring-1 ring-slate-200 transition hover:bg-slate-50 hover:text-indigo-600 hover:ring-indigo-200"
+            >
+              <Edit3 className="h-3 w-3" />
+              Edit
+            </Link>
+          </div>
         </div>
       </div>
     </div>
@@ -166,15 +178,22 @@ export default async function ProfilePage() {
     .select("*", { count: "exact", head: true })
     .eq("reporter_id", user.id);
 
-  const userName = user.email?.split("@")[0] || "User";
+  // Fetch profile
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .single();
+
+  const userName = profile?.full_name || user.email?.split("@")[0] || "User";
   const initials = userName.substring(0, 2).toUpperCase();
 
   const USER = {
     name: userName,
-    branch: "AKTU Student",
-    year: "Active",
+    branch: profile?.course || "AKTU Student",
+    year: profile ? `Class of ${profile.batch}` : "Active",
     joinedYear: new Date(user.created_at).getFullYear(),
-    location: "Campus",
+    location: profile?.address || "Campus",
     avatar: null, // no avatar support yet
     stats: {
       activeListings: activeItems.length,
